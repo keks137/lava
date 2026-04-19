@@ -48,7 +48,7 @@ TokenKind :: enum u32 {
 	End_Literal,
 	Begin_Keyword,
 	Pkg,
-	Fn,
+	// Fn,
 	End_Keyword,
 	COUNT,
 }
@@ -67,7 +67,7 @@ tokens := [TokenKind.COUNT]string {
 	TokenKind.Int      = "int",
 	TokenKind.Float    = "float",
 	TokenKind.Pkg      = "pkg",
-	TokenKind.Fn       = "fn",
+	// TokenKind.Fn       = "fn",
 }
 Token :: struct {
 	kind: TokenKind,
@@ -177,7 +177,7 @@ scan_number :: proc(t: ^Tokenizer, start_point: bool = false) -> (TokenKind, str
 				tokenizer_error_at(
 					t,
 					digit_pos,
-					"Value exceeds exceeds '%i', invalid for base '%i'",
+					"Value exceeds '%i', invalid for base '%i'",
 					base - 1,
 					base,
 				)
@@ -277,6 +277,28 @@ scan :: proc(t: ^Tokenizer) -> Token {
 
 	case:
 		switch t.r {
+		case '(':
+			tok.kind = .OParen;advance_rune(t)
+		case ')':
+			tok.kind = .CParen;advance_rune(t)
+		case '{':
+			tok.kind = .OBracket;advance_rune(t)
+		case '}':
+			tok.kind = .CBracket;advance_rune(t)
+		case ':':
+			advance_rune(t)
+			switch t.r {
+			case '=':
+				tok.kind = .Walrus
+				advance_rune(t)
+			case ':':
+				tok.kind = .Const
+				advance_rune(t)
+			case:
+				tok.lit = ":<" // hack for 2-wide error
+				tokenizer_error_tok(t, tok, "Expected ':=' or '::' for declaration")
+
+			}
 		case '.':
 			advance_rune(t)
 			if t.r >= '0' && t.r <= '9' {
@@ -285,6 +307,7 @@ scan :: proc(t: ^Tokenizer) -> Token {
 			}
 		case '+':
 			tok.kind = .Add
+			advance_rune(t)
 		case:
 			tokenizer_error_tok(t, tok, "invalid token")
 
@@ -444,8 +467,8 @@ parse_file :: proc(p: ^Parser, md: ^Package) {
 		case .EOF:
 			break loop
 		case .Invalid:
-			fmt.eprintln("pos %v", get_pos(t))
-			panic("huh")
+			fmt.eprintln("Invalid: pos %v", get_pos(t))
+		// panic("huh")
 
 		case:
 			fmt.eprintln("tok %v", tok)
