@@ -1,4 +1,7 @@
-pkg hello
-alert("hello world")
+pkg hello 
+0x1_2A
+3.14
+.92
+0s315
 
 
