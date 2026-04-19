@@ -1,0 +1,4 @@
+pkg hello
+alert("hello world")
+
+
