@@ -1,5 +1,6 @@
 package lava
 
+import "core:terminal/ansi"
 Compiler_State :: struct {
 	file_names: [dynamic]string,
 	file_data:  [dynamic]string,
@@ -26,10 +27,19 @@ TokenKind :: enum u32 {
 	Invalid,
 	EOF,
 	Begin_Op,
-	Plus,
-	Minus,
+	Add,
+	Sub,
 	Mul,
 	Div,
+	OParen,
+	CParen,
+	OBracket,
+	CBracket,
+	Begin_Assign,
+	Walrus,
+	Const,
+	Assign,
+	End_Assign,
 	End_Op,
 	Begin_Literal,
 	Ident,
@@ -38,25 +48,26 @@ TokenKind :: enum u32 {
 	End_Literal,
 	Begin_Keyword,
 	Pkg,
+	Fn,
 	End_Keyword,
 	COUNT,
 }
 tokens := [TokenKind.COUNT]string {
-	TokenKind.Invalid       = "",
-	TokenKind.EOF           = "",
-	TokenKind.Begin_Op      = "",
-	TokenKind.Plus          = "+",
-	TokenKind.Minus         = "-",
-	TokenKind.Mul           = "*",
-	TokenKind.Div           = "/",
-	TokenKind.End_Op        = "",
-	TokenKind.Begin_Literal = "",
-	TokenKind.Int           = "int",
-	TokenKind.Float         = "float",
-	TokenKind.End_Literal   = "",
-	TokenKind.Begin_Keyword = "",
-	TokenKind.Pkg           = "pkg",
-	TokenKind.End_Keyword   = "",
+	TokenKind.Add      = "+",
+	TokenKind.Sub      = "-",
+	TokenKind.Mul      = "*",
+	TokenKind.Div      = "/",
+	TokenKind.OParen   = "(",
+	TokenKind.CParen   = ")",
+	TokenKind.OBracket = "{",
+	TokenKind.CBracket = "}",
+	TokenKind.Walrus   = ":=",
+	TokenKind.Assign   = "=",
+	TokenKind.Const    = "::",
+	TokenKind.Int      = "int",
+	TokenKind.Float    = "float",
+	TokenKind.Pkg      = "pkg",
+	TokenKind.Fn       = "fn",
 }
 Token :: struct {
 	kind: TokenKind,
@@ -246,8 +257,8 @@ scan_identifier :: proc(t: ^Tokenizer) -> string {
 }
 scan :: proc(t: ^Tokenizer) -> Token {
 	skip_whitespace(t)
-	pos := get_pos(t)
 	tok := Token{}
+	tok.pos = get_pos(t)
 
 	switch true {
 	case t.r == 0:
@@ -272,9 +283,10 @@ scan :: proc(t: ^Tokenizer) -> Token {
 
 				tok.kind, tok.lit = scan_number(t, true)
 			}
+		case '+':
+			tok.kind = .Add
 		case:
-			tokenizer_error_at(t, pos, "invalid token")
-			os.exit(1)
+			tokenizer_error_tok(t, tok, "invalid token")
 
 		}
 
@@ -290,20 +302,78 @@ skip_whitespace :: proc(t: ^Tokenizer) {
 }
 
 
-skip :: proc(t: ^Tokenizer, text: string) -> bool {
-	for r in text {
-		if !(t.r == r) {return false}
-		advance_rune(t)
+skip :: proc(p: ^Parser, kind: TokenKind) -> Token {
+	if p.cur.kind != kind {
+		tokenizer_error_at(&p.tok, p.cur.pos, "expected '%s', got '%s'", tokens[kind], p.cur.lit)
+		os.exit(1)
 	}
-	return true
+	tok := p.cur
+	next(p)
+	return tok
 }
 
 tokenizer_error :: proc(t: ^Tokenizer, msg: string, args: ..any) {
 	t.nerrors += 1
-	col := t.start_line + 1
-	fmt.eprintf("%s:%d:%d: ", t.path, t.nlines + 1, col)
 	fmt.eprintf(msg, ..args)
+	if terminal.color_enabled {
+		fmt.eprint(ansi.CSI + ansi.FG_RED + ansi.SGR)
+		fmt.eprint(ansi.CSI + ansi.BOLD + ansi.SGR)
+	}
+	fmt.eprintfln("error: ")
+	if terminal.color_enabled {
+		fmt.eprint(ansi.CSI + ansi.RESET + ansi.SGR)
+	}
+	fmt.eprintf("%s:%d:%d", t.path, t.nlines + 1, t.pos - t.start_line + 1)
+	if terminal.color_enabled {
+		fmt.eprint(ansi.CSI + ansi.FG_RED + ansi.SGR)
+		fmt.eprint(ansi.CSI + ansi.BOLD + ansi.SGR)
+	}
+	fmt.eprintf(msg, ..args)
+	if terminal.color_enabled {
+		fmt.eprint(ansi.CSI + ansi.RESET + ansi.SGR)
+	}
 	fmt.eprintf("\n")
+}
+tokenizer_error_tok :: proc(t: ^Tokenizer, tok: Token, msg: string, args: ..any) {
+	t.nerrors += 1
+	tok_width := len(tok.lit)
+
+	rest := t.src[tok.pos.start_line:]
+	idx := strings.index_byte(rest, '\n')
+	line_text := rest if idx < 0 else rest[:idx]
+
+	if terminal.color_enabled {
+		fmt.eprint(ansi.CSI + ansi.FG_RED + ansi.SGR)
+		fmt.eprint(ansi.CSI + ansi.BOLD + ansi.SGR)
+	}
+	fmt.eprintfln("error: ")
+	if terminal.color_enabled {
+		fmt.eprint(ansi.CSI + ansi.RESET + ansi.SGR)
+	}
+	fmt.eprintf("%s:%d:%d", t.path, tok.pos.line, tok.pos.col)
+
+	fmt.eprintf("\n%s", line_text)
+	fmt.printf("\n%*s", tok.pos.col - 1, "")
+	if terminal.color_enabled {
+		fmt.eprint(ansi.CSI + ansi.FG_RED + ansi.SGR)
+		fmt.eprint(ansi.CSI + ansi.BOLD + ansi.SGR)
+	}
+	fmt.printf("^")
+
+	if tok_width >= 2 {
+		for i in 2 ..< tok_width {
+			fmt.printf("~")
+		}
+		fmt.printf("^")
+	}
+	fmt.printf(" ")
+	fmt.eprintf(msg, ..args)
+	if terminal.color_enabled {
+		fmt.eprint(ansi.CSI + ansi.RESET + ansi.SGR)
+	}
+	fmt.eprintf("\n")
+
+
 }
 tokenizer_error_at :: proc(t: ^Tokenizer, pos: Pos, msg: string, args: ..any) {
 	t.nerrors += 1
@@ -311,16 +381,39 @@ tokenizer_error_at :: proc(t: ^Tokenizer, pos: Pos, msg: string, args: ..any) {
 	idx := strings.index_byte(rest, '\n')
 	line_text := rest if idx < 0 else rest[:idx]
 
-	fmt.eprintf("%s:%d:%d: ", t.path, pos.line, pos.col)
+
+	if terminal.color_enabled {
+		fmt.eprint(ansi.CSI + ansi.FG_RED + ansi.SGR)
+		fmt.eprint(ansi.CSI + ansi.BOLD + ansi.SGR)
+	}
+	fmt.eprintfln("error: ")
+	if terminal.color_enabled {
+		fmt.eprint(ansi.CSI + ansi.RESET + ansi.SGR)
+	}
+	fmt.eprintf("%s:%d:%d", t.path, pos.line, pos.col)
+
 	fmt.eprintf("\n%s", line_text)
-	fmt.printf("\n%*s", pos.pos - pos.start_line, "")
+	fmt.printf("\n%*s", pos.col - 1, "")
+	if terminal.color_enabled {
+		fmt.eprint(ansi.CSI + ansi.FG_RED + ansi.SGR)
+		fmt.eprint(ansi.CSI + ansi.BOLD + ansi.SGR)
+	}
 	fmt.printf("^ ")
 	fmt.eprintf(msg, ..args)
+	if terminal.color_enabled {
+		fmt.eprint(ansi.CSI + ansi.RESET + ansi.SGR)
+	}
 	fmt.eprintf("\n")
 
 }
 Parser :: struct {
 	tok: Tokenizer,
+	cur: Token,
+}
+
+
+next :: proc(p: ^Parser) {
+	p.cur = scan(&p.tok)
 }
 
 parse_file :: proc(p: ^Parser, md: ^Package) {
@@ -328,6 +421,23 @@ parse_file :: proc(p: ^Parser, md: ^Package) {
 	t := &p.tok
 
 	advance_rune(t)
+
+	tok := scan(t)
+	if tok.kind != .Pkg {
+		tokenizer_error_tok(t, tok, "expected 'pkg' at start of file")
+	}
+	tok = scan(t)
+	if tok.kind != .Ident {
+		tokenizer_error_tok(t, tok, "expected package name")
+	}
+	if md.name == "" {
+		md.name = tok.lit
+	}
+	if md.name != tok.lit {
+		tokenizer_error_tok(t, tok, "Differing package name, other file has '%s'", md.name)
+	}
+
+
 	loop: for true {
 		tok := scan(t)
 		#partial switch tok.kind {
@@ -387,5 +497,6 @@ import "base:runtime"
 import "core:fmt"
 import "core:os"
 import "core:strings"
+import "core:terminal"
 import "core:unicode"
 import "core:unicode/utf8"
