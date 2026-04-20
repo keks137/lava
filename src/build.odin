@@ -1,10 +1,9 @@
 package lava
 
-import "core:terminal/ansi"
-Compiler_State :: struct {
+CompilerState :: struct {
 	file_names: [dynamic]string,
 	file_data:  [dynamic]string,
-	modules:    [dynamic]Package,
+	pkgs:       [dynamic]Package,
 	ast:        [dynamic]Node,
 	parsers:    [dynamic]Parser,
 }
@@ -20,9 +19,7 @@ Pos :: struct {
 	col:        int,
 }
 
-Node :: struct {
-	pos: Pos,
-}
+
 TokenKind :: enum u32 {
 	Invalid,
 	EOF,
@@ -48,7 +45,7 @@ TokenKind :: enum u32 {
 	End_Literal,
 	Begin_Keyword,
 	Pkg,
-	// Fn,
+	Fn,
 	End_Keyword,
 	COUNT,
 }
@@ -67,7 +64,7 @@ tokens := [TokenKind.COUNT]string {
 	TokenKind.Int      = "int",
 	TokenKind.Float    = "float",
 	TokenKind.Pkg      = "pkg",
-	// TokenKind.Fn       = "fn",
+	TokenKind.Fn       = "fn",
 }
 Token :: struct {
 	kind: TokenKind,
@@ -357,6 +354,7 @@ tokenizer_error :: proc(t: ^Tokenizer, msg: string, args: ..any) {
 	}
 	fmt.eprintf("\n")
 }
+
 tokenizer_error_tok :: proc(t: ^Tokenizer, tok: Token, msg: string, args: ..any) {
 	t.nerrors += 1
 	tok_width := len(tok.lit)
@@ -429,81 +427,9 @@ tokenizer_error_at :: proc(t: ^Tokenizer, pos: Pos, msg: string, args: ..any) {
 	fmt.eprintf("\n")
 
 }
-Parser :: struct {
-	tok: Tokenizer,
-	cur: Token,
-}
 
 
-next :: proc(p: ^Parser) {
-	p.cur = scan(&p.tok)
-}
-
-parse_file :: proc(p: ^Parser, md: ^Package) {
-
-	t := &p.tok
-
-	advance_rune(t)
-
-	tok := scan(t)
-	if tok.kind != .Pkg {
-		tokenizer_error_tok(t, tok, "expected 'pkg' at start of file")
-	}
-	tok = scan(t)
-	if tok.kind != .Ident {
-		tokenizer_error_tok(t, tok, "expected package name")
-	}
-	if md.name == "" {
-		md.name = tok.lit
-	}
-	if md.name != tok.lit {
-		tokenizer_error_tok(t, tok, "Differing package name, other file has '%s'", md.name)
-	}
-
-
-	loop: for true {
-		tok := scan(t)
-		#partial switch tok.kind {
-		case .EOF:
-			break loop
-		case .Invalid:
-			fmt.eprintln("Invalid: pos %v", get_pos(t))
-		// panic("huh")
-
-		case:
-			fmt.eprintln("tok %v", tok)
-
-		}
-	}
-
-
-}
-
-parse_base_module :: proc(cs: ^Compiler_State) {
-
-	append(&cs.modules, Package{})
-	for fdt, i in cs.file_data {
-		p := &cs.parsers[i]
-		t := &p.tok
-		t.path = cs.file_names[i]
-		t.src = cs.file_data[i]
-
-		parse_file(p, &cs.modules[0])
-	}
-
-
-	sb := strings.Builder{}
-	strings.write_string(&sb, cs.modules[0].name)
-	strings.write_string(&sb, ".js")
-
-	fp := os.open(strings.to_string(sb), {.Create, .Write}) or_else panic("idk")
-	os.write(fp, transmute([]u8)cs.file_data[0])
-
-
-}
-
-
-build :: proc(cs: ^Compiler_State) {
+build :: proc(cs: ^CompilerState) {
 	cs.file_data = make(type_of(cs.file_data), len(cs.file_names))
 	cs.parsers = make(type_of(cs.parsers), len(cs.file_names))
 	for file, i in cs.file_names {
@@ -521,5 +447,6 @@ import "core:fmt"
 import "core:os"
 import "core:strings"
 import "core:terminal"
+import "core:terminal/ansi"
 import "core:unicode"
 import "core:unicode/utf8"

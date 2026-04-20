@@ -17,7 +17,7 @@ main :: proc() {
 		}
 	}
 	cli: Cli_State = {}
-	cmp: Compiler_State = {}
+	cmp: CompilerState = {}
 
 	if len(os.args) < 2 {
 		fmt.eprintfln("E: supply proper args pls")
