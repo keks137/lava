@@ -272,18 +272,141 @@ parse_base_module :: proc(cs: ^CompilerState) {
 	}
 
 
-	sb := strings.Builder{}
+	js_sb := strings.Builder{}
+	defer strings.builder_destroy(&js_sb)
+	generate_js(&cs.ast, &js_sb)
+	js_code := strings.to_string(js_sb)
+
+	name_sb := strings.Builder{}
+	defer strings.builder_destroy(&name_sb)
+	strings.write_string(&name_sb, cs.pkgs[0].name)
+	strings.write_string(&name_sb, ".js")
+
 	if cs.pkgs[0].name == "" {
 		panic("Package name is nil")
 	}
-	strings.write_string(&sb, cs.pkgs[0].name)
-	strings.write_string(&sb, ".js")
 
-	fp := os.open(strings.to_string(sb), {.Create, .Write}) or_else panic("idk")
-	os.write(fp, transmute([]u8)cs.file_data[0])
+	fp :=
+		os.open(
+			strings.to_string(name_sb),
+			{.Create, .Write},
+			os.Permissions_Default_File,
+		) or_else panic("failed to create output file")
+	defer os.close(fp)
 
+	_, err := os.write(fp, transmute([]u8)js_code)
+	if err != os.ERROR_NONE {
+		panic("failed to write JS output")
+	}
 
 }
+
+
+generate_js :: proc(ast: ^[dynamic]Node, sb: ^strings.Builder) {
+	for &node in ast {
+		if node.kind == .Expr_Stmt {
+			gen_expr(ast, node.data.(Expr_Stmt).expr, sb)
+			strings.write_string(sb, ";\n")
+		}
+	}
+}
+
+
+emit_js_literal :: proc(lit: string) -> string {
+	if len(lit) < 2 {
+		return lit
+	}
+
+	prefix := lit[:2]
+	rest := lit[2:]
+
+	switch prefix {
+	case "0s":
+		val := 0
+		for c in rest {
+			if c >= '0' && c <= '5' {
+				val = val * 6 + int(c - '0')
+			} else {
+				break
+			}
+		}
+		return fmt.tprintf("%d", val)
+
+	case "0b":
+		val := 0
+		for c in rest {
+			if c == '0' || c == '1' {
+				val = val * 2 + int(c - '0')
+			} else {
+				break
+			}
+		}
+		return fmt.tprintf("%d", val)
+
+	case "0x":
+		val := 0
+		for c in rest {
+			switch c {
+			case '0' ..= '9':
+				val = val * 16 + int(c - '0')
+			case 'a' ..= 'f':
+				val = val * 16 + int(c - 'a') + 10
+			case 'A' ..= 'F':
+				val = val * 16 + int(c - 'A') + 10
+			case:
+				break
+			}
+		}
+		return fmt.tprintf("%d", val)
+
+	case:
+		return lit
+	}
+}
+
+gen_expr :: proc(ast: ^[dynamic]Node, idx: int, sb: ^strings.Builder) {
+	if idx < 0 || idx >= len(ast) {
+		return
+	}
+
+	node := ast[idx]
+	switch node.kind {
+	case .Literal:
+		lit := node.data.(Literal_Expr)
+		strings.write_string(sb, emit_js_literal(lit.lit))
+
+	case .Binary:
+		bin := node.data.(Binary_Expr)
+		strings.write_string(sb, "(")
+		gen_expr(ast, bin.left, sb)
+
+		op_str: string
+		#partial switch bin.op {
+		case .Add:
+			op_str = " + "
+		case .Sub:
+			op_str = " - "
+		case .Mul:
+			op_str = " * "
+		case .Div:
+			op_str = " / "
+		case:
+			op_str = " ? "
+		}
+		strings.write_string(sb, op_str)
+
+		gen_expr(ast, bin.right, sb)
+		strings.write_string(sb, ")")
+
+	case .Expr_Stmt:
+		gen_expr(ast, node.data.(Expr_Stmt).expr, sb)
+
+	case .Start, .Invalid:
+	// nothing to emit
+	}
+}
+
+
 import "base:runtime"
 import "core:fmt"
 import "core:os"
