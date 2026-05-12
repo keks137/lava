@@ -38,6 +38,7 @@ Node :: struct {
 }
 
 
+
 next :: proc(p: ^Parser) {
 	p.prev = p.cur
 	p.cur = scan(&p.tok)
@@ -303,6 +304,8 @@ parse_base_module :: proc(cs: ^CompilerState) {
 
 
 generate_js :: proc(ast: ^[dynamic]Node, sb: ^strings.Builder) {
+	strings.write_string(sb, "\"use strict\";\n")
+
 	for &node in ast {
 		if node.kind == .Expr_Stmt {
 			gen_expr(ast, node.data.(Expr_Stmt).expr, sb)
