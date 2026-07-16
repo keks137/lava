@@ -156,20 +156,21 @@ is_digit_val :: proc(r: rune) -> (bool, int) {
 	}
 	return false, 16
 }
+DEFAULT_INT_BASE :: 6 
+
 scan_number :: proc(t: ^Tokenizer, start_point: bool = false) -> (TokenKind, string) {
-	scan_digits :: proc(t: ^Tokenizer, base: int) {
+	scan_digits :: proc(t: ^Tokenizer, base: int) -> int {
+		n := 0
 		for {
 			is_dig, val := is_digit_val(t.r)
-
-			if (t.r == '_') {
+			if t.r == '_' {
 				advance_rune(t)
 				continue
 			}
-			if !(is_dig) {
+			if !is_dig {
 				break
-
 			}
-			if (val >= base) {
+			if val >= base {
 				digit_pos := get_pos(t)
 				tokenizer_error_at(
 					t,
@@ -180,63 +181,56 @@ scan_number :: proc(t: ^Tokenizer, start_point: bool = false) -> (TokenKind, str
 				)
 			}
 			advance_rune(t)
+			n += 1
 		}
+		return n
 	}
-	scan_fraction :: proc(t: ^Tokenizer, kind: ^TokenKind) {
+	scan_fraction :: proc(t: ^Tokenizer, kind: ^TokenKind, base: int) {
 		if t.r == '.' {
 			kind^ = .Float
 			advance_rune(t)
-			scan_digits(t, 10)
-
+			scan_digits(t, base)
 		}
 	}
 	int_base :: proc(t: ^Tokenizer, kind: ^TokenKind, base: int, msg: string) {
-		prev := t.pos
-		advance_rune(t)
-		scan_digits(t, base)
-		if t.pos - prev <= 1 {
+		advance_rune(t) // consume the prefix letter
+		if scan_digits(t, base) == 0 {
 			kind^ = .Invalid
 			tokenizer_error_at(t, get_pos(t), msg)
 		}
 	}
 
-
 	pos := t.pos
 	kind := TokenKind.Int
-	switch {
-	case start_point:
+
+	if start_point {
 		kind = .Float
 		pos -= 1
-		scan_digits(t, 10)
-
+		scan_digits(t, DEFAULT_INT_BASE)
 		return kind, string(t.src[pos:t.pos])
+	}
 
-	case '0' == t.r:
+	if t.r == '0' {
 		advance_rune(t)
 		switch t.r {
 		case 'b':
 			int_base(t, &kind, 2, "illegal binary integer")
-		case 's':
-			int_base(t, &kind, 6, "illegal seximal integer")
+		case 'd':
+			int_base(t, &kind, 10, "illegal decimal integer")
+		// scan_fraction(t, &kind, 10) // NOTE: unsure if decimal floats should be allowed
 		case 'x':
 			int_base(t, &kind, 16, "illegal hex integer")
+		case 's':
+			int_base(t, &kind, 6, "illegal seximal integer")
 		case:
-			scan_digits(t, 10)
-			seen_point := false
-			if t.r == '.' {
-				seen_point = true
-				scan_fraction(t, &kind)
-
-			}
-			return kind, string(t.src[pos:t.pos])
-
+			scan_digits(t, DEFAULT_INT_BASE)
+			scan_fraction(t, &kind, DEFAULT_INT_BASE)
 		}
-
+		return kind, string(t.src[pos:t.pos])
 	}
-	scan_digits(t, 10)
-	scan_fraction(t, &kind)
 
-
+	scan_digits(t, DEFAULT_INT_BASE)
+	scan_fraction(t, &kind, DEFAULT_INT_BASE)
 	return kind, string(t.src[pos:t.pos])
 }
 is_letter :: proc(r: rune) -> bool {
@@ -275,13 +269,13 @@ scan :: proc(t: ^Tokenizer) -> Token {
 	case:
 		switch t.r {
 		case '(':
-			tok.kind = .OParen;advance_rune(t)
+			tok.kind = .OParen; advance_rune(t)
 		case ')':
-			tok.kind = .CParen;advance_rune(t)
+			tok.kind = .CParen; advance_rune(t)
 		case '{':
-			tok.kind = .OBracket;advance_rune(t)
+			tok.kind = .OBracket; advance_rune(t)
 		case '}':
-			tok.kind = .CBracket;advance_rune(t)
+			tok.kind = .CBracket; advance_rune(t)
 		case ':':
 			advance_rune(t)
 			switch t.r {

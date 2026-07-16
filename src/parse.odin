@@ -38,7 +38,6 @@ Node :: struct {
 }
 
 
-
 next :: proc(p: ^Parser) {
 	p.prev = p.cur
 	p.cur = scan(&p.tok)
@@ -363,7 +362,15 @@ emit_js_literal :: proc(lit: string) -> string {
 		return fmt.tprintf("%d", val)
 
 	case:
-		return lit
+		val := 0
+		for c in lit {
+			if c >= '0' && c <= '5' {
+				val = val * 6 + int(c - '0')
+			} else {
+				break
+			}
+		}
+		return fmt.tprintf("%d", val)
 	}
 }
 
